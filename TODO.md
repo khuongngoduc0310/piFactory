@@ -6,8 +6,8 @@ verification have passed.
 
 ## Status
 
-- Current phase: Phase 1 - Domain Core (complete; awaiting Phase 2 authorization)
-- Completed phases: 1 / 20
+- Current phase: Phase 2 - Persistence (complete; awaiting Phase 3 authorization)
+- Completed phases: 2 / 20
 - First vertical slice: Not started
 
 ## Before Coding
@@ -36,12 +36,12 @@ verification have passed.
   - [x] Implement Artifact types
   - [x] Implement DAG validation
   - [x] Add and pass Phase 1 unit tests
-- [ ] Phase 2 - Persistence
-  - [ ] Implement run storage
-  - [ ] Implement event log
-  - [ ] Implement atomic writes
-  - [ ] Implement state reload
-  - [ ] Prove completed nodes survive restart
+- [x] Phase 2 - Persistence
+  - [x] Implement saved-state run storage
+  - [x] Implement ordered event log
+  - [x] Implement atomic saved-state publication
+  - [x] Implement validated saved-state reload
+  - [x] Prove completed nodes survive restart
 - [ ] Phase 3 - Safety Foundation
   - [ ] Implement canonical SHA-256 hashing
   - [ ] Implement workspace snapshots and deltas

@@ -23,12 +23,14 @@ Read these files before making project changes:
 
 ## Current Scope
 
-- The current authorized implementation scope is Phase 1: Domain Core.
-- Do not begin Phase 2 or any later phase without explicit user authorization.
-- Phase 1 includes `FactoryRun`, `WorkNode`, `WorkGraph`, Artifact types, DAG
-  validation, and their unit tests.
-- Do not add agents, persistence, schedulers, LLM integrations, parallelism,
-  worktrees, runtime orchestration, or a dashboard during Phase 1.
+- Phase 1: Domain Core and Phase 2: Persistence are complete.
+- Phase 3 and later phases require explicit user authorization before work
+  begins.
+- Phase 2 included saved-state storage, ordered event history, atomic
+  publication, validated reload, and persistence integration tests.
+- Do not add checkpoints, leases, scheduler recovery, agents, schedulers, LLM
+  integrations, workspace mutation, parallelism, worktrees, runtime
+  orchestration, or a dashboard without authorization for their phase.
 
 ## Pre-Coding Gate
 

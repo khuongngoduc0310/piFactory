@@ -3,10 +3,11 @@
 ## Status and Scope
 
 This document records the accepted architecture for the initial piFactory
-implementation. The current implementation scope is Phase 1: Domain Core.
+implementation. Phase 1: Domain Core and Phase 2: Persistence are complete.
 Later-phase sections define contracts and boundaries only; they do not authorize
-implementation of persistence, schedulers, agents, workspace mutation,
-parallelism, worktrees, runtime orchestration, or a user interface.
+implementation of checkpoints, leases, schedulers, agents,
+workspace mutation, parallelism, worktrees, runtime orchestration, or a user
+interface.
 
 The domain core is deterministic. Identifiers, timestamps, filesystem state,
 and other nondeterministic inputs are supplied by callers.
@@ -29,7 +30,7 @@ src/
   agents/                    # Phase 5+
   context/                   # Phase 7+
   workspace/                 # Phase 3+
-  persistence/               # Phase 2+
+  persistence/               # Phase 2
   validation/                # Phase 5+
   decisions/                 # Phase 17+
   runtime/                   # Phase 4+
@@ -365,29 +366,47 @@ workspace changes; Phase 7 persists and retrieves artifacts.
 
 ## 10. Persistence Model
 
-Phase 2 will store each run under:
+Phase 2 stores each run under a safe storage key derived from the run ID:
 
 ```text
 .pifactory/
   runs/
-    <run-id>/
-      run.json
-      graph.json
-      events.jsonl
-      checkpoint-latest.json
-      nodes/
-      artifacts/
-      decisions/
-      worktrees/
+    <sha256-run-id>/
+      current.json
+      states/
+        state-00000001-<uuid>/
+          run.json
+          graph.json
+          events.jsonl
 ```
 
-JSON snapshots use explicit schema versions. Events are append-only and carry a
-unique ID, monotonically increasing run-local sequence, timestamp, type, and
-structured payload. Snapshot and checkpoint replacement uses same-directory
-temporary files, flushes where supported, and atomic rename. Reload validates
-schemas, graph invariants, event sequence, and checkpoint integrity before the
-run can resume. Persistence adapters translate plain domain values without
-placing I/O in domain modules.
+The plain-language term **saved state** means one complete stored copy of the
+run metadata, graph, and event history. A **state version** identifies a saved
+state. `current.json` selects the current saved state; it is the only commit
+pointer. A saved state becomes current only after all files in its state
+directory are written, flushed, and published before `current.json` is atomically
+replaced.
+
+Run metadata and the graph are stored separately within the same saved-state
+directory so the persisted representation remains explicit even though the
+domain FactoryRun embeds its graph. `run.json`, `graph.json`, and
+`events.jsonl` carry matching run IDs and state versions. Events are append-only
+through the public API and carry a unique ID, contiguous run-local sequence,
+timestamp, type, and bounded structured JSON payload. Each saved state contains
+the complete event history; snapshots remain authoritative and Phase 2 does not
+replay events to rebuild a run.
+
+State publication uses same-directory temporary files, file flushes, atomic
+renames, and directory flushes where supported. A crash before the pointer is
+published leaves the previous current saved state loadable; a crash after
+publication exposes the complete new saved state. Unpublished state directories
+are ignored. Phase 2 supports one writer per run; run leases and stale-owner
+recovery belong to Phase 19.
+
+Reload parses persisted JSON as `unknown`, validates schema versions, identities,
+state versions, graph invariants, event sequences, size limits, and FactoryRun
+state consistency before returning a frozen domain value. Persistence adapters
+translate plain domain values without placing I/O in domain modules.
 
 ## 11. Digest Strategy
 
@@ -454,10 +473,12 @@ completion guard, graph operation, dependency failure, missing reference,
 duplicate edge, self-edge, and cycle. They also verify stable query ordering and
 that caller-owned arrays cannot mutate created domain values.
 
-Phase 2 integration tests will cover atomic persistence, event ordering, reload,
-checkpoint validation, and completed-node survival after restart. Later
-integration tests cover artifact storage, human continuation, idempotency,
-Builder execution, mutation attestation, and differential validation.
+Phase 2 integration tests cover atomic saved-state publication, event ordering,
+reload, malformed-data rejection, stale state-version rejection, and
+completed-node survival after restart. Checkpoints, leases, and scheduler
+recovery are Phase 19 concerns. Later integration tests cover artifact storage,
+human continuation, idempotency, Builder execution, mutation attestation, and
+differential validation.
 
 System tests use temporary real Git repositories and are reserved for the small
 number of behaviors that require them: worktree creation and cleanup, parallel

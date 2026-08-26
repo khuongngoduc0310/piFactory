@@ -1,10 +1,19 @@
 import { DomainError } from "./domain-error.js";
-import { createWorkGraph, type WorkGraph } from "./work-graph.js";
-import type { FailureInfo } from "./work-node.js";
+import {
+  createWorkGraph,
+  validateDependencies,
+  type WorkGraph,
+} from "./work-graph.js";
+import {
+  validateWorkNode,
+  type FailureInfo,
+  type WorkNode,
+} from "./work-node.js";
 import {
   assertIsoTimestamp,
   assertNonEmptyString,
   assertTimestampNotBefore,
+  isIsoTimestamp,
 } from "./validation.js";
 
 export const EXECUTION_TIERS = ["fast", "standard", "deep"] as const;
@@ -47,6 +56,21 @@ export interface CreateFactoryRunInput {
   readonly graph: WorkGraph;
   readonly budget: ExecutionBudget;
   readonly createdAt: string;
+}
+
+export type FactoryRunValidationIssueCode =
+  | "invalid_identity"
+  | "invalid_tier"
+  | "invalid_status"
+  | "invalid_graph"
+  | "invalid_budget"
+  | "invalid_timestamps"
+  | "invalid_failure"
+  | "incomplete_run";
+
+export interface FactoryRunValidationIssue {
+  readonly code: FactoryRunValidationIssueCode;
+  readonly message: string;
 }
 
 const ALLOWED_TRANSITIONS: Readonly<
@@ -100,6 +124,188 @@ function freezeBudget(budget: ExecutionBudget): ExecutionBudget {
     maxRetriesPerNode: budget.maxRetriesPerNode,
     ...(budget.maxTokens === undefined ? {} : { maxTokens: budget.maxTokens }),
     ...(budget.maxCostUsd === undefined ? {} : { maxCostUsd: budget.maxCostUsd }),
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validationIssue(
+  code: FactoryRunValidationIssueCode,
+  message: string,
+): FactoryRunValidationIssue {
+  return Object.freeze({ code, message });
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function validateBudget(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    Number.isInteger(value.maxParallelAgents) &&
+    (value.maxParallelAgents as number) > 0 &&
+    Number.isInteger(value.maxAgentCalls) &&
+    (value.maxAgentCalls as number) >= 0 &&
+    Number.isInteger(value.maxRetriesPerNode) &&
+    (value.maxRetriesPerNode as number) >= 0 &&
+    (value.maxTokens === undefined ||
+      (Number.isInteger(value.maxTokens) && (value.maxTokens as number) >= 0)) &&
+    (value.maxCostUsd === undefined ||
+      (Number.isFinite(value.maxCostUsd) && (value.maxCostUsd as number) >= 0))
+  );
+}
+
+function validGraph(value: unknown): value is WorkGraph {
+  if (!isRecord(value) || !Array.isArray(value.nodes)) {
+    return false;
+  }
+  if (value.nodes.some((node) => validateWorkNode(node).length > 0)) {
+    return false;
+  }
+  return validateDependencies(value.nodes as readonly WorkNode[]).length === 0;
+}
+
+function latestGraphTimestampFromValue(graph: WorkGraph): string | undefined {
+  let latest: string | undefined;
+  for (const node of graph.nodes) {
+    const entry = node.executionHistory.at(-1);
+    if (entry !== undefined && (latest === undefined || Date.parse(entry.at) > Date.parse(latest))) {
+      latest = entry.at;
+    }
+  }
+  return latest;
+}
+
+export function validateFactoryRun(value: unknown): readonly FactoryRunValidationIssue[] {
+  const issues: FactoryRunValidationIssue[] = [];
+  if (!isRecord(value)) {
+    return Object.freeze([
+      validationIssue("invalid_identity", "FactoryRun must be an object"),
+    ]);
+  }
+
+  if (!isNonEmptyString(value.id) || !isNonEmptyString(value.request)) {
+    issues.push(
+      validationIssue(
+        "invalid_identity",
+        "FactoryRun id and request must be non-empty strings",
+      ),
+    );
+  }
+  if (
+    typeof value.tier !== "string" ||
+    !(EXECUTION_TIERS as readonly string[]).includes(value.tier)
+  ) {
+    issues.push(validationIssue("invalid_tier", "FactoryRun tier is not supported"));
+  }
+  if (
+    typeof value.status !== "string" ||
+    !(FACTORY_RUN_STATUSES as readonly string[]).includes(value.status)
+  ) {
+    issues.push(validationIssue("invalid_status", "FactoryRun status is not supported"));
+  }
+
+  let graph: WorkGraph | undefined;
+  if (!validGraph(value.graph)) {
+    issues.push(validationIssue("invalid_graph", "FactoryRun graph is invalid"));
+  } else {
+    graph = createWorkGraph(value.graph.nodes);
+  }
+
+  if (!validateBudget(value.budget)) {
+    issues.push(validationIssue("invalid_budget", "FactoryRun budget is invalid"));
+  }
+  if (!isIsoTimestamp(value.createdAt) || !isIsoTimestamp(value.updatedAt)) {
+    issues.push(validationIssue("invalid_timestamps", "FactoryRun timestamps are invalid"));
+  } else if (Date.parse(value.updatedAt) < Date.parse(value.createdAt)) {
+    issues.push(
+      validationIssue(
+        "invalid_timestamps",
+        "FactoryRun updatedAt cannot precede createdAt",
+      ),
+    );
+  }
+
+  const failure = isRecord(value.failure) ? value.failure : undefined;
+  const hasValidFailure =
+    failure !== undefined &&
+    isNonEmptyString(failure.reason) &&
+    isIsoTimestamp(failure.at) &&
+    value.status === "failed" &&
+    value.updatedAt === failure.at;
+  if (value.status === "failed" && !hasValidFailure) {
+    issues.push(
+      validationIssue(
+        "invalid_failure",
+        "Failed FactoryRuns require failure data at updatedAt",
+      ),
+    );
+  } else if (value.status !== "failed" && value.failure !== undefined) {
+    issues.push(
+      validationIssue(
+        "invalid_failure",
+        "Only failed FactoryRuns may contain failure data",
+      ),
+    );
+  }
+
+  if (graph !== undefined) {
+    const latestGraphTimestamp = latestGraphTimestampFromValue(graph);
+    if (
+      latestGraphTimestamp !== undefined &&
+      isIsoTimestamp(value.updatedAt) &&
+      Date.parse(latestGraphTimestamp) > Date.parse(value.updatedAt)
+    ) {
+      issues.push(
+        validationIssue(
+          "invalid_timestamps",
+          "FactoryRun updatedAt cannot precede WorkGraph state",
+        ),
+      );
+    }
+    if (
+      value.status === "completed" &&
+      (graph.nodes.length === 0 || graph.nodes.some(({ status }) => status !== "completed"))
+    ) {
+      issues.push(
+        validationIssue(
+          "incomplete_run",
+          "Completed FactoryRuns require a non-empty completed WorkGraph",
+        ),
+      );
+    }
+  }
+
+  return Object.freeze(issues);
+}
+
+export function snapshotFactoryRun(value: unknown): FactoryRun {
+  const issues = validateFactoryRun(value);
+  if (issues.length > 0) {
+    throw new DomainError(
+      "invalid_argument",
+      issues.map(({ message }) => message).join("; "),
+    );
+  }
+
+  const run = value as FactoryRun;
+  return Object.freeze({
+    id: run.id,
+    request: run.request,
+    tier: run.tier,
+    status: run.status,
+    graph: createWorkGraph(run.graph.nodes),
+    budget: freezeBudget(run.budget),
+    createdAt: run.createdAt,
+    updatedAt: run.updatedAt,
+    ...(run.failure === undefined
+      ? {}
+      : { failure: Object.freeze({ ...run.failure }) }),
   });
 }
 

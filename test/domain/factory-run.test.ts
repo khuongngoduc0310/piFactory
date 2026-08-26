@@ -9,8 +9,10 @@ import {
   failFactoryRun,
   markFactoryRunWaitingHuman,
   resumeFactoryRun,
+  snapshotFactoryRun,
   startFactoryRun,
   updateRunGraph,
+  validateFactoryRun,
   type FactoryRun,
   type FactoryRunStatus,
 } from "../../src/domain/factory-run.js";
@@ -128,6 +130,40 @@ describe("createFactoryRun", () => {
         createdAt: T0,
       } as unknown as Parameters<typeof createFactoryRun>[0]),
     ).toThrow(DomainError);
+  });
+});
+
+describe("FactoryRun reconstruction", () => {
+  it("validates and deeply snapshots every non-created run state", () => {
+    const running = startFactoryRun(makeRun(), T1);
+    const waiting = markFactoryRunWaitingHuman(running, T2);
+    const failed = failFactoryRun(running, T2, "Execution failed");
+    const cancelled = cancelFactoryRun(makeRun(), T1);
+    let completedGraph = markNodeReady(running.graph, "build", T2);
+    completedGraph = markNodeRunning(completedGraph, "build", T3);
+    completedGraph = markNodeCompleted(completedGraph, "build", T4, {
+      artifactRefs: ["artifact-build"],
+      outputDigest: "opaque-output",
+    });
+    const completed = completeFactoryRun(updateRunGraph(running, completedGraph, T4), T5);
+
+    for (const run of [running, waiting, failed, cancelled, completed]) {
+      const restored = snapshotFactoryRun(JSON.parse(JSON.stringify(run)) as unknown);
+      expect(restored).toEqual(run);
+      expect(Object.isFrozen(restored)).toBe(true);
+      expect(Object.isFrozen(restored.graph)).toBe(true);
+      expect(Object.isFrozen(restored.graph.nodes[0]?.executionHistory)).toBe(true);
+    }
+  });
+
+  it("reports invalid persisted run state without trusting its cast", () => {
+    const run = JSON.parse(JSON.stringify(makeRun())) as Record<string, unknown>;
+    run.status = "completed";
+
+    const issues = validateFactoryRun(run);
+
+    expect(issues.some(({ code }) => code === "incomplete_run")).toBe(true);
+    expect(() => snapshotFactoryRun(run)).toThrow(DomainError);
   });
 });
 
