@@ -6,8 +6,8 @@ verification have passed.
 
 ## Status
 
-- Current phase: Phase 2 - Persistence (complete; awaiting Phase 3 authorization)
-- Completed phases: 2 / 20
+- Current phase: Phase 3 - Safety Foundation (complete; awaiting Phase 4 authorization)
+- Completed phases: 3 / 20
 - First vertical slice: Not started
 
 ## Before Coding
@@ -42,11 +42,11 @@ verification have passed.
   - [x] Implement atomic saved-state publication
   - [x] Implement validated saved-state reload
   - [x] Prove completed nodes survive restart
-- [ ] Phase 3 - Safety Foundation
-  - [ ] Implement canonical SHA-256 hashing
-  - [ ] Implement workspace snapshots and deltas
-  - [ ] Implement path validation
-  - [ ] Implement mutation boundaries
+- [x] Phase 3 - Safety Foundation
+  - [x] Implement canonical SHA-256 hashing
+  - [x] Implement workspace snapshots and deltas
+  - [x] Implement path validation
+  - [x] Implement mutation boundaries
 - [ ] Phase 4 - Sequential Scheduler
   - [ ] Implement dependency scheduling
   - [ ] Implement state transitions

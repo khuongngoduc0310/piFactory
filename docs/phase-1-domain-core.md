@@ -490,5 +490,5 @@ runtime behavior is implemented only in their authorized phases.
 | [`validation.ts`](../src/domain/validation.ts) | Shared primitive and timestamp validation |
 | [`index.ts`](../src/domain/index.ts) | Public Phase 1 domain exports |
 
-Progress is recorded in [`TODO.md`](../TODO.md). Phase 1 and Phase 2 are complete;
-Phase 3 requires explicit authorization.
+Progress is recorded in [`TODO.md`](../TODO.md). Phases 1, 2, and 3 are complete;
+Phase 4 requires explicit authorization.

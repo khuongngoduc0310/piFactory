@@ -23,13 +23,16 @@ Read these files before making project changes:
 
 ## Current Scope
 
-- Phase 1: Domain Core and Phase 2: Persistence are complete.
-- Phase 3 and later phases require explicit user authorization before work
+- Phase 1: Domain Core, Phase 2: Persistence, and Phase 3: Safety Foundation
+  are complete.
+- Phase 4 and later phases require explicit user authorization before work
   begins.
 - Phase 2 included saved-state storage, ordered event history, atomic
   publication, validated reload, and persistence integration tests.
+- Phase 3 included canonical SHA-256 digests, repository-path validation,
+  defensive workspace snapshots and deltas, and fail-closed mutation scopes.
 - Do not add checkpoints, leases, scheduler recovery, agents, schedulers, LLM
-  integrations, workspace mutation, parallelism, worktrees, runtime
+  integrations, workspace mutation execution, parallelism, worktrees, runtime
   orchestration, or a dashboard without authorization for their phase.
 
 ## Pre-Coding Gate

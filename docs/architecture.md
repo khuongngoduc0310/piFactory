@@ -3,9 +3,9 @@
 ## Status and Scope
 
 This document records the accepted architecture for the initial piFactory
-implementation. Phase 1: Domain Core and Phase 2: Persistence are complete.
-Later-phase sections define contracts and boundaries only; they do not authorize
-implementation of checkpoints, leases, schedulers, agents,
+implementation. Phases 1: Domain Core, 2: Persistence, and 3: Safety Foundation
+are complete. Later-phase sections define contracts and boundaries only; they do
+not authorize implementation of checkpoints, leases, schedulers, agents,
 workspace mutation, parallelism, worktrees, runtime orchestration, or a user
 interface.
 
@@ -29,7 +29,16 @@ src/
   scheduler/                 # Phase 4+
   agents/                    # Phase 5+
   context/                   # Phase 7+
-  workspace/                 # Phase 3+
+  workspace/                 # Phase 3
+    digest.ts
+    path-validation.ts
+    text-validation.ts       # internal shared text checks
+    workspace-snapshot.ts
+    workspace-delta.ts
+    mutation-scope.ts
+    workspace-error.ts
+    workspace-fs.ts           # internal filesystem seam
+    index.ts
   persistence/               # Phase 2
   validation/                # Phase 5+
   decisions/                 # Phase 17+
@@ -41,6 +50,13 @@ test/
     factory-run.test.ts
     work-graph.test.ts
     work-node.test.ts
+  workspace/
+    digest.test.ts
+    path-validation.test.ts
+    workspace-snapshot.test.ts
+    workspace-snapshot-race.test.ts
+    workspace-delta.test.ts
+    mutation-scope.test.ts
 ```
 
 Only `src/domain` and `test/domain` are created in Phase 1. Domain values use
@@ -410,31 +426,77 @@ translate plain domain values without placing I/O in domain modules.
 
 ## 11. Digest Strategy
 
-Phase 3 will use SHA-256 over canonical UTF-8 serialization. Canonical
-serialization sorts object keys, preserves semantically ordered arrays, sorts
-set-like collections before serialization, rejects unsupported values, and
-distinguishes absent values consistently.
+Phase 3 implements SHA-256 over canonical UTF-8 serialization. Canonical
+serialization sorts object keys by UTF-16 code units, preserves ordered arrays,
+and requires callers to explicitly canonicalize set-like collections. It rejects
+unsupported values, accessors, cycles, malformed Unicode, non-finite numbers,
+and non-plain objects. Absent object properties remain distinct from explicit
+`null` values. Digest strings use the explicit `sha256:<64 lowercase hex>` form.
+
+Raw file bytes use the same prefixed SHA-256 representation without text
+decoding. `canonicalizeSet()` is the only set-like collection operation; the
+serializer never guesses whether an array is ordered or set-like. Canonical
+serialization and snapshot limits are enforced while values are being written
+or accepted; oversized canonical output is rejected before it is appended.
 
 Digest categories include workspace, configuration, WorkNode input and output,
 artifact, and checkpoint digests. A WorkNode input digest covers its objective,
 relevant file identities and content digests, dependency artifact digests, and
 applicable human decisions. It does not hash the whole repository unless the
-scope genuinely requires it. Digest strings use an explicit `sha256:<hex>`
-format. Phase 1 stores opaque digest fields but does not compute or trust them.
+scope genuinely requires it. Phase 1 continues to store opaque digest fields
+for its domain boundary. Phase 3 supplies validated digest values; it does not
+migrate existing persistence documents or change the Phase 2 storage-key hash.
 
 ## 12. Mutation-Security Model
 
-All agent-provided paths and mutation reports are untrusted. Phase 3 will:
+All agent-provided paths and mutation reports are untrusted. Phase 3 implements:
 
-- accept repository-relative normalized paths only;
-- reject absolute paths, drive paths, URLs, dot segments, empty segments,
-  control characters, and traversal;
-- compare normalized paths against explicit allowed and forbidden scopes;
-- validate symlinks and ensure resolved targets remain in the workspace;
-- use bounded reads and defensive identity checks where necessary;
-- snapshot the real workspace before and after mutation;
-- independently derive added, modified, and deleted paths;
-- reject actual changes outside the authorized mutation scope.
+- repository-relative paths using forward slashes only;
+- rejection of absolute paths, drive paths, URLs, dot segments, empty
+  segments, control characters, Windows-reserved characters and names, and
+  traversal;
+- exact-or-descendant matching with segment-aware boundaries;
+- configurable case comparison, defaulting to insensitive on Windows and
+  sensitive elsewhere;
+- symlink target recording without traversal and physical containment checks;
+- bounded directory enumeration, file reads, total snapshot bytes, path sizes,
+  and canonical serialization;
+- maximum repository path depth, with the root at depth zero;
+- file identity checks at open, after hashing, and during final revalidation;
+- POSIX no-follow file opens and rejection of hard-linked regular files;
+- normalized immutable snapshot and mutation-scope inputs at trust boundaries;
+- independent added, modified, and deleted deltas from before/after snapshots;
+- whole-result rejection when any path is outside the allowed scope or matches a
+  forbidden scope.
+
+Canonicalization and filesystem traversal also enforce a recursion-safe maximum
+depth instead of accepting arbitrarily large depth settings that could exhaust
+the JavaScript call stack.
+
+Mutation scopes compile `WorkNode.scope`-compatible path declarations. Missing
+or empty `allowedMutationPaths` grants no mutation authority; a no-op remains
+acceptable. Forbidden paths always win, and `relevantPaths` never grants write
+permission. Phase 3's `assessMutationScope(before, after, scope)` computes its
+own delta, so callers do not submit a worker-reported delta as authority. A
+scope may provide `pathLimits` when it is used with snapshots that allow larger
+repository path components; assessment uses the normalized snapshot paths
+without silently applying a second default limit.
+
+Snapshots include regular files and symlinks, not directories. Regular files
+use normalized Git-like modes (`100644` or `100755`); symlinks use `120000` and
+record their raw target text. Renames are represented as a deletion plus an
+addition. Special files, escaping/dangling/looping links, unstable entries, and
+unsupported hard links fail closed.
+
+Phase 3 is an attestation layer, not a prevention or rollback mechanism. It
+cannot observe transient changes that are restored before the final snapshot,
+external side effects, or changes made after the final revalidation. Node 22's
+standard cross-platform filesystem APIs are path-based, so portable checks can
+detect and reject many parent-directory races but cannot make parent resolution
+atomic. Strict anchored traversal requires a platform-specific native helper or
+an operational exclusive-access policy. Phase 5 will place these primitives
+around Builder execution; Phase 3 does not execute workers, commands, schedulers,
+or agents.
 
 Role capabilities have hard-coded maxima. Configuration may reduce but never
 silently expand them. Parallel mutation will eventually require isolated Git
@@ -475,10 +537,12 @@ that caller-owned arrays cannot mutate created domain values.
 
 Phase 2 integration tests cover atomic saved-state publication, event ordering,
 reload, malformed-data rejection, stale state-version rejection, and
-completed-node survival after restart. Checkpoints, leases, and scheduler
-recovery are Phase 19 concerns. Later integration tests cover artifact storage,
-human continuation, idempotency, Builder execution, mutation attestation, and
-differential validation.
+completed-node survival after restart. Phase 3 tests cover canonical digest
+fixtures, path rejection, bounded and defensive workspace capture, file-mode
+and symlink metadata, deterministic deltas, case policy, and fail-closed
+mutation scopes. Checkpoints, leases, and scheduler recovery are Phase 19
+concerns. Later integration tests cover artifact storage, human continuation,
+idempotency, Builder execution, and differential validation.
 
 System tests use temporary real Git repositories and are reserved for the small
 number of behaviors that require them: worktree creation and cleanup, parallel
