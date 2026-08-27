@@ -11,6 +11,9 @@ It does not execute agents or commands, schedule work, mutate the workspace,
 persist snapshots, roll back changes, create worktrees, or prevent operating
 system side effects. Builder wiring belongs to Phase 5.
 
+For a plain-language implementation walkthrough with API examples, see the
+[Phase 3 implementation deep dive](./phase-3-safety-foundation-deep-dive.md).
+
 ## Package Layout
 
 ```text

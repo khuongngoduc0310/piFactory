@@ -439,6 +439,9 @@ serializer never guesses whether an array is ordered or set-like. Canonical
 serialization and snapshot limits are enforced while values are being written
 or accepted; oversized canonical output is rejected before it is appended.
 
+The [Phase 3 implementation deep dive](./phase-3-safety-foundation-deep-dive.md)
+explains these contracts with examples and test references.
+
 Digest categories include workspace, configuration, WorkNode input and output,
 artifact, and checkpoint digests. A WorkNode input digest covers its objective,
 relevant file identities and content digests, dependency artifact digests, and
