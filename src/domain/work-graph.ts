@@ -58,6 +58,21 @@ function nodeMap(nodes: readonly WorkNode[]): ReadonlyMap<string, WorkNode> {
   return result;
 }
 
+function compareCodeUnits(left: string, right: string): number {
+  const length = Math.min(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftCodeUnit = left.charCodeAt(index);
+    const rightCodeUnit = right.charCodeAt(index);
+    if (leftCodeUnit < rightCodeUnit) {
+      return -1;
+    }
+    if (leftCodeUnit > rightCodeUnit) {
+      return 1;
+    }
+  }
+  return left.length - right.length;
+}
+
 export function detectCycles(nodes: readonly WorkNode[]): readonly (readonly string[])[] {
   const byId = nodeMap(nodes);
   const state = new Map<string, "visiting" | "visited">();
@@ -102,7 +117,7 @@ export function detectCycles(nodes: readonly WorkNode[]): readonly (readonly str
 
   return Object.freeze(
     cycles
-      .sort((left, right) => left.join("\u0000").localeCompare(right.join("\u0000")))
+      .sort((left, right) => compareCodeUnits(left.join("\u0000"), right.join("\u0000")))
       .map((cycle) => Object.freeze(cycle)),
   );
 }
@@ -132,7 +147,7 @@ export function validateDependencies(
     nodeIdCounts.set(node.id, (nodeIdCounts.get(node.id) ?? 0) + 1);
   }
   for (const [nodeId, count] of [...nodeIdCounts].sort(([left], [right]) =>
-    left.localeCompare(right),
+    compareCodeUnits(left, right),
   )) {
     if (count > 1) {
       issues.push(
@@ -143,7 +158,9 @@ export function validateDependencies(
     }
   }
 
-  for (const node of [...validNodes].sort((left, right) => left.id.localeCompare(right.id))) {
+  for (const node of [...validNodes].sort((left, right) =>
+    compareCodeUnits(left.id, right.id),
+  )) {
     const dependencyCounts = new Map<string, number>();
     for (const dependencyId of node.dependsOn) {
       dependencyCounts.set(
@@ -152,7 +169,7 @@ export function validateDependencies(
       );
     }
     for (const [dependencyId, count] of [...dependencyCounts].sort(
-      ([left], [right]) => left.localeCompare(right),
+      ([left], [right]) => compareCodeUnits(left, right),
     )) {
       if (count > 1) {
         issues.push(
@@ -166,7 +183,9 @@ export function validateDependencies(
     }
   }
 
-  for (const node of [...validNodes].sort((left, right) => left.id.localeCompare(right.id))) {
+  for (const node of [...validNodes].sort((left, right) =>
+    compareCodeUnits(left.id, right.id),
+  )) {
     for (const dependencyId of [...new Set(node.dependsOn)].sort()) {
       if (dependencyId === node.id) {
         issues.push(
@@ -194,7 +213,9 @@ export function validateDependencies(
     "completed",
     "failed",
   ]);
-  for (const node of [...validNodes].sort((left, right) => left.id.localeCompare(right.id))) {
+  for (const node of [...validNodes].sort((left, right) =>
+    compareCodeUnits(left.id, right.id),
+  )) {
     const hasReadyHistory = node.executionHistory.some(
       ({ status }) => status === "ready",
     );
@@ -257,7 +278,7 @@ export function createWorkGraph(nodes: readonly WorkNode[] = []): WorkGraph {
     nodes: Object.freeze(
       nodes
         .map(snapshotWorkNode)
-        .sort((left, right) => left.id.localeCompare(right.id)),
+        .sort((left, right) => compareCodeUnits(left.id, right.id)),
     ),
   });
 }
@@ -376,7 +397,7 @@ export function getDependents(
   } while (options.transitive === true && frontier.length > 0);
 
   return Object.freeze(
-    [...result.values()].sort((left, right) => left.id.localeCompare(right.id)),
+    [...result.values()].sort((left, right) => compareCodeUnits(left.id, right.id)),
   );
 }
 

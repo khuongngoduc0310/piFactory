@@ -57,6 +57,9 @@ describe("event log", () => {
         1,
       ),
     ).toThrowError(expect.objectContaining({ code: "unsupported_schema" }));
+    expect(() => decodeEventLog("", "run-1", 1)).toThrowError(
+      expect.objectContaining({ code: "corrupt_state" }),
+    );
   });
 
   it("rejects invalid payloads and keeps input values independent", () => {

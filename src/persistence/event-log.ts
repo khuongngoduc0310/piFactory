@@ -324,7 +324,7 @@ export function decodeEventLog(
     throw new PersistenceError("size_limit_exceeded", "Event log exceeds its size limit");
   }
   if (contents.length === 0) {
-    return Object.freeze([]);
+    throw new PersistenceError("corrupt_state", "Event log header is missing");
   }
   if (!contents.endsWith("\n")) {
     throw new PersistenceError("corrupt_state", "Event log must end with a complete line");

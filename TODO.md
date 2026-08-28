@@ -6,8 +6,8 @@ verification have passed.
 
 ## Status
 
-- Current phase: Phase 3 - Safety Foundation (complete; awaiting Phase 4 authorization)
-- Completed phases: 3 / 20
+- Current phase: Phase 4 - Sequential Scheduler (complete; awaiting Phase 5 authorization)
+- Completed phases: 4 / 20
 - First vertical slice: Not started
 
 ## Before Coding
@@ -47,12 +47,17 @@ verification have passed.
   - [x] Implement workspace snapshots and deltas
   - [x] Implement path validation
   - [x] Implement mutation boundaries
-- [ ] Phase 4 - Sequential Scheduler
-  - [ ] Implement dependency scheduling
-  - [ ] Implement state transitions
-  - [ ] Implement retry policy
-  - [ ] Implement budget tracking
-  - [ ] Enforce one worker at a time
+- [x] Phase 4 - Sequential Scheduler
+  - [x] Implement dependency scheduling
+  - [x] Implement state transitions
+  - [x] Implement retry policy
+  - [x] Implement budget tracking
+  - [x] Enforce one worker at a time
+- [ ] Before Phase 5, decide and document how partial workspace mutations are
+      recovered: preserve evidence, isolate work in a worktree, or restore
+      transactionally.
+- [ ] Do not automatically retry a partially mutating attempt unless retry
+      safety is independently proven.
 - [ ] Phase 5 - Builder
   - [ ] Add the first LLM integration
   - [ ] Validate actual workspace mutations

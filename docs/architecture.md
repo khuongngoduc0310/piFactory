@@ -3,11 +3,11 @@
 ## Status and Scope
 
 This document records the accepted architecture for the initial piFactory
-implementation. Phases 1: Domain Core, 2: Persistence, and 3: Safety Foundation
-are complete. Later-phase sections define contracts and boundaries only; they do
-not authorize implementation of checkpoints, leases, schedulers, agents,
-workspace mutation, parallelism, worktrees, runtime orchestration, or a user
-interface.
+implementation. Phases 1: Domain Core, 2: Persistence, 3: Safety Foundation,
+and 4: Sequential Scheduler are complete. Later-phase sections define contracts
+and boundaries only; they do not authorize implementation of checkpoints,
+leases, agents, workspace mutation, parallelism, worktrees, runtime
+orchestration, or a user interface.
 
 The domain core is deterministic. Identifiers, timestamps, filesystem state,
 and other nondeterministic inputs are supplied by callers.
@@ -113,8 +113,9 @@ Execution budgets are stored in Phase 1 because they are durable FactoryRun
 input. `maxParallelAgents` must be a positive integer. `maxAgentCalls` and
 `maxRetriesPerNode` must be non-negative integers. Optional `maxTokens` must be
 a non-negative integer and optional `maxCostUsd` must be finite and
-non-negative. Zero means no allowance. Budget consumption and enforcement
-belong to Phase 4.
+non-negative. Zero means no allowance. Phase 4 enforces call count, retry count,
+and a sequential worker limit. Token, cost, aggregate budget, and
+no-progress-loop enforcement belong to Phase 18.
 
 ## 3. WorkNode Interface
 
@@ -301,22 +302,30 @@ scheduler.
 
 ## 7. Scheduler Responsibilities
 
-The scheduler is deterministic application code, not an agent. Beginning in
-Phase 4 it will:
+The scheduler is deterministic application code, not an agent. Phase 4 provides
+the sequential foundation:
 
-- query and record ready or blocked nodes;
-- enforce dependency, concurrency, budget, retry, and role limits;
-- authorize role requests and reject unsupported recommendations;
-- detect predicted and actual mutation conflicts;
-- select sequentially runnable work before parallel execution exists;
-- invoke disposable worker sessions through an adapter;
-- validate and accept or reject worker results;
-- persist transitions and coordinate checkpoints;
-- continue after recorded human decisions;
-- decide terminal FactoryRun outcomes.
+- query ready WorkNodes through the immutable graph API;
+- select one node in deterministic ID order;
+- enforce dependency completion, call budgets, and retry budgets;
+- persist ready, running, completed, failed, and retry transitions;
+- invoke an injected executor only after the running state is current;
+- retry only failures independently classified as safe by trusted adapter code;
+- fail fast on unsafe or exhausted failures;
+- complete the FactoryRun only after every WorkNode completes.
 
-No scheduler code exists in Phase 1. The domain does not call agents, access the
-filesystem, persist itself, or make scheduling decisions.
+The effective Phase 4 worker capacity is one, even when the stored budget allows
+more. An already-running run returns `recovery_required`; Phase 4 does not reset
+or re-invoke uncertain work. Cross-process ownership, role authorization,
+mutation conflicts, worktrees, checkpoints, human decisions, tier escalation,
+parallelism, and broader budget policy remain later-phase responsibilities.
+Phase 4 accepts only Builder WorkNodes in `implement` mode; Planner, Reviewer,
+and other Builder modes are enabled in their later phases.
+
+The scheduler commits `running` before invoking the executor and commits the
+outcome afterward. It uses an injected executor seam rather than an LLM or a
+real agent provider. See the [Phase 4 scheduler guide](./phase-4-sequential-scheduler.md)
+and its [implementation deep dive](./phase-4-sequential-scheduler-deep-dive.md).
 
 ## 8. RoleResult Protocol
 
@@ -527,8 +536,10 @@ and no worktree. The scheduler owns every transition and validates every agent
 recommendation. This slice must be reliable before Planner decomposition,
 parallelism, integration workers, review, or worktrees are introduced.
 
-Phase 1 supplies only the run, node, graph, artifact, transition, and validation
-primitives required at the beginning and end of that flow.
+Phase 1 supplies the run, node, graph, artifact, transition, and validation
+primitives. Phase 4 supplies the deterministic scheduler seam; Phase 5 supplies
+the real Builder, workspace attestation, targeted validation, and implementation
+result handling.
 
 ## 14. Initial Testing Strategy
 
